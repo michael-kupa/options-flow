@@ -249,12 +249,11 @@ function MaxPainSectionView({
       >
         <div className="flex items-center gap-3">
           <span className="rounded bg-[#1a1a1a] px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider text-[#f59e0b]">
-            {section.label}
+            {section.label} ({dte} DTE)
           </span>
           <span className="font-mono text-sm font-bold text-white">
             {ticker} — Max Pain — {section.expiration}
           </span>
-          <span className="font-mono text-xs text-[#737373]">({dte} DTE)</span>
         </div>
         <div className="flex items-center gap-4">
           <span className="font-mono text-xs text-[#a78bfa]">Spot ${section.currentPrice.toFixed(2)}</span>

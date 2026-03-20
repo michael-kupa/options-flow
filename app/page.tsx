@@ -11,6 +11,7 @@ import type {
 } from "./api/options/route";
 import OptionsAnalyticsPanel from "./components/OptionsAnalytics";
 import MaxPainAnalyticsPanel from "./components/MaxPainAnalytics";
+import GammaExposurePanel from "./components/GammaExposure";
 
 // ── Shared chart theme ────────────────────────────────────────────────────────
 
@@ -426,16 +427,31 @@ export default function DashboardPage() {
         {/* ════════════════════════════════════════════════════════
             04 · POSITIONING & PINNING
             ════════════════════════════════════════════════════════ */}
-        {hasData && data && data.maxPainSections.length > 0 && (
+        {hasData && data && (hasIV || data.maxPainSections.length > 0) && (
           <>
             <SectionLabel num="04" title="Positioning & Pinning" />
-            <Card>
-              <MaxPainAnalyticsPanel
-                maxPainSections={data.maxPainSections}
-                ticker={ticker}
-                underlyingPrice={data.underlyingPrice}
-              />
-            </Card>
+
+            {/* 4.1 Gamma Exposure */}
+            {hasIV && (
+              <Card>
+                <GammaExposurePanel
+                  ivSurface={data.ivSurface}
+                  underlyingPrice={data.underlyingPrice}
+                  ticker={ticker}
+                />
+              </Card>
+            )}
+
+            {/* 4.2 Multi-Expiration Max Pain */}
+            {data.maxPainSections.length > 0 && (
+              <Card>
+                <MaxPainAnalyticsPanel
+                  maxPainSections={data.maxPainSections}
+                  ticker={ticker}
+                  underlyingPrice={data.underlyingPrice}
+                />
+              </Card>
+            )}
           </>
         )}
 

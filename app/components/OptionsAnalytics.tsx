@@ -316,11 +316,11 @@ export default function OptionsAnalyticsPanel({
     [ivSurface, expiry, underlyingPrice, strikeRange]
   );
 
-  const greekCfg: { key: GreekKey; label: string; callKey: keyof ChartPoint; putKey: keyof ChartPoint; unit?: string; yLabel?: string }[] = [
-    { key: "delta", label: "Delta",  callKey: "callDelta", putKey: "putDelta", yLabel: "Δ" },
-    { key: "gamma", label: "Gamma",  callKey: "callGamma", putKey: "putGamma", yLabel: "Γ" },
-    { key: "theta", label: "Theta",  callKey: "callTheta", putKey: "putTheta", yLabel: "Θ/day" },
-    { key: "vega",  label: "Vega",   callKey: "callVega",  putKey: "putVega",  yLabel: "ν/1%" },
+  const greekCfg: { key: GreekKey; label: string; sub: string; callKey: keyof ChartPoint; putKey: keyof ChartPoint; unit?: string; yLabel?: string }[] = [
+    { key: "delta", label: "Delta", sub: "calls [0,1] · puts [-1,0]",    callKey: "callDelta", putKey: "putDelta", yLabel: "Δ" },
+    { key: "gamma", label: "Gamma", sub: "Δ change per $1 move",          callKey: "callGamma", putKey: "putGamma", yLabel: "Γ" },
+    { key: "theta", label: "Theta", sub: "P&L decay per calendar day",    callKey: "callTheta", putKey: "putTheta", yLabel: "Θ/day" },
+    { key: "vega",  label: "Vega",  sub: "P&L per 1% IV change",          callKey: "callVega",  putKey: "putVega",  yLabel: "ν/1%" },
   ];
 
   if (!expirations.length) {
@@ -384,8 +384,13 @@ export default function OptionsAnalyticsPanel({
 
       {/* ── IV Skew chart ── */}
       <div className="rounded border border-[#262626] bg-[#111] p-3">
-        <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#a3a3a3]">
-          IV Skew — {expiry} ({daysToExp}d)
+        <div className="mb-2 flex items-baseline gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wider text-[#a3a3a3]">
+            IV Skew
+          </span>
+          <span className="text-[10px] font-mono text-[#525252]">
+            implied volatility by strike · {expiry} ({Math.round(daysToExp)}d)
+          </span>
         </div>
         <LineChartPanel
           data={chartData}
@@ -404,8 +409,9 @@ export default function OptionsAnalyticsPanel({
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {greekCfg.map(g => (
           <div key={g.key} className="rounded border border-[#262626] bg-[#111] p-3">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#a3a3a3]">
-              {g.label}
+            <div className="mb-2 flex items-baseline gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wider text-[#a3a3a3]">{g.label}</span>
+              <span className="text-[10px] font-mono text-[#525252]">{g.sub}</span>
             </div>
             <LineChartPanel
               data={chartData}
