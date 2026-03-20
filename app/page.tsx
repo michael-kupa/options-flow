@@ -3,13 +3,13 @@
 import { useState, useCallback, useMemo } from "react";
 import {
   XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, BarChart, Bar, Legend, ReferenceLine,
+  ResponsiveContainer, BarChart, Bar, Legend,
   ComposedChart, Line,
 } from "recharts";
-import OptionsAnalyticsPanel from "./components/OptionsAnalytics";
 import type {
   ByExpiryRow, SentimentRow, StockAgg, OptionsApiResponse,
 } from "./api/options/route";
+import OptionsAnalyticsPanel from "./components/OptionsAnalytics";
 import MaxPainAnalyticsPanel from "./components/MaxPainAnalytics";
 
 // ── Shared chart theme ────────────────────────────────────────────────────────
@@ -24,7 +24,7 @@ function VolumeByExpiryChart({ data }: { data: ByExpiryRow[] }) {
   if (!display.length) return null;
   const fmt = (v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v);
   return (
-    <ResponsiveContainer width="100%" height={260}>
+    <ResponsiveContainer width="100%" height={240}>
       <BarChart data={display} margin={{ top: 10, right: 10, bottom: 40, left: 10 }}>
         <CartesianGrid {...GRID} />
         <XAxis dataKey="expiration" tick={{ ...TICK, fontSize: 9 }} angle={-35} textAnchor="end" interval={0} />
@@ -50,7 +50,7 @@ function OIByExpiryChart({ data }: { data: ByExpiryRow[] }) {
   if (!display.length) return null;
   const fmt = (v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v);
   return (
-    <ResponsiveContainer width="100%" height={260}>
+    <ResponsiveContainer width="100%" height={240}>
       <BarChart data={display} margin={{ top: 10, right: 10, bottom: 40, left: 10 }}>
         <CartesianGrid {...GRID} />
         <XAxis dataKey="expiration" tick={{ ...TICK, fontSize: 9 }} angle={-35} textAnchor="end" interval={0} />
@@ -69,7 +69,6 @@ function OIByExpiryChart({ data }: { data: ByExpiryRow[] }) {
   );
 }
 
-
 // ── Chart: Stock price + volume (30-day) ──────────────────────────────────────
 
 function StockChart({ data, ticker }: { data: StockAgg[]; ticker: string }) {
@@ -78,15 +77,13 @@ function StockChart({ data, ticker }: { data: StockAgg[]; ticker: string }) {
   const prices = data.map(d => d.close);
   const pMin = Math.min(...prices) * 0.98;
   const pMax = Math.max(...prices) * 1.02;
-
   return (
     <ResponsiveContainer width="100%" height={260}>
       <ComposedChart data={data} margin={{ top: 10, right: 50, bottom: 40, left: 10 }}>
         <CartesianGrid {...GRID} />
         <XAxis dataKey="date" tick={{ ...TICK, fontSize: 9 }} angle={-35} textAnchor="end" interval="preserveStartEnd" />
         <YAxis yAxisId="vol" orientation="left" tick={TICK} tickFormatter={fmtVol} />
-        <YAxis yAxisId="price" orientation="right" domain={[pMin, pMax]}
-          tick={{ ...TICK }} tickFormatter={(v) => `$${v.toFixed(0)}`} />
+        <YAxis yAxisId="price" orientation="right" domain={[pMin, pMax]} tick={TICK} tickFormatter={(v) => `$${v.toFixed(0)}`} />
         <Tooltip
           contentStyle={{ background: "#1a1a1a", border: "1px solid #262626", borderRadius: 4, fontFamily: "monospace", fontSize: 11 }}
           labelStyle={{ color: "#e5e5e5" }}
@@ -104,7 +101,6 @@ function StockChart({ data, ticker }: { data: StockAgg[]; ticker: string }) {
 
 function sentimentLabel(skew: number | null, pcRatio: number | null): { label: string; color: string } {
   if (skew == null) return { label: "—", color: "text-[#737373]" };
-  // Puts more expensive (skew > 0.05) = bearish; calls more expensive (skew < -0.05) = bullish
   const bearish = skew > 0.05 || (pcRatio != null && pcRatio > 1.3);
   const bullish = skew < -0.05 || (pcRatio != null && pcRatio < 0.7);
   if (bearish) return { label: "BEARISH", color: "text-red-400" };
@@ -127,7 +123,6 @@ function SentimentTable({ data }: { data: SentimentRow[] }) {
         <tbody>
           {data.map((row, i) => {
             const { label, color } = sentimentLabel(row.putCallSkew, row.pcVolRatio);
-            const skewPct = row.putCallSkew != null ? (row.putCallSkew * 100).toFixed(1) : "—";
             const skewColor = row.putCallSkew == null ? "text-[#737373]"
               : row.putCallSkew > 0.03 ? "text-red-400"
               : row.putCallSkew < -0.03 ? "text-emerald-400"
@@ -136,21 +131,13 @@ function SentimentTable({ data }: { data: SentimentRow[] }) {
               <tr key={i} className="border-b border-[#1a1a1a] hover:bg-[#1a1a1a] transition-colors">
                 <td className="py-2 px-3 text-white">{row.expiration}</td>
                 <td className="py-2 px-3 text-[#737373]">{Math.round(row.daysToExp)}d</td>
-                <td className="py-2 px-3 text-emerald-400">
-                  {row.atmCallIV != null ? `${(row.atmCallIV * 100).toFixed(1)}%` : "—"}
-                </td>
-                <td className="py-2 px-3 text-red-400">
-                  {row.atmPutIV != null ? `${(row.atmPutIV * 100).toFixed(1)}%` : "—"}
-                </td>
+                <td className="py-2 px-3 text-emerald-400">{row.atmCallIV != null ? `${(row.atmCallIV * 100).toFixed(1)}%` : "—"}</td>
+                <td className="py-2 px-3 text-red-400">{row.atmPutIV != null ? `${(row.atmPutIV * 100).toFixed(1)}%` : "—"}</td>
                 <td className={`py-2 px-3 font-bold ${skewColor}`}>
-                  {row.putCallSkew != null ? `${row.putCallSkew > 0 ? "+" : ""}${skewPct}%` : "—"}
+                  {row.putCallSkew != null ? `${row.putCallSkew > 0 ? "+" : ""}${(row.putCallSkew * 100).toFixed(1)}%` : "—"}
                 </td>
-                <td className="py-2 px-3 text-[#e5e5e5]">
-                  {row.pcVolRatio != null ? row.pcVolRatio.toFixed(2) : "—"}
-                </td>
-                <td className="py-2 px-3 text-amber-400 font-bold">
-                  {row.impliedMove != null ? `±${(row.impliedMove * 100).toFixed(1)}%` : "—"}
-                </td>
+                <td className="py-2 px-3 text-[#e5e5e5]">{row.pcVolRatio != null ? row.pcVolRatio.toFixed(2) : "—"}</td>
+                <td className="py-2 px-3 text-amber-400 font-bold">{row.impliedMove != null ? `±${(row.impliedMove * 100).toFixed(1)}%` : "—"}</td>
                 <td className={`py-2 px-3 font-bold ${color}`}>{label}</td>
               </tr>
             );
@@ -161,16 +148,75 @@ function SentimentTable({ data }: { data: SentimentRow[] }) {
   );
 }
 
-// ── Section wrapper ───────────────────────────────────────────────────────────
+// ── Layout primitives ─────────────────────────────────────────────────────────
 
+/** Subtle terminal-style section divider */
+function SectionLabel({ num, title }: { num: string; title: string }) {
+  return (
+    <div className="flex items-center gap-3 select-none">
+      <span className="font-mono text-[11px] text-[#383838] tabular-nums">{num}</span>
+      <div className="h-px flex-1 bg-[#1a1a1a]" />
+      <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[#525252]">{title}</span>
+    </div>
+  );
+}
+
+/** Base dark card */
+function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className={`rounded-lg border border-[#262626] bg-[#111111] p-4 ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+/** Titled panel for charts and tables */
 function Panel({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <div className="bg-[#111111] border border-[#262626] rounded-lg p-4 space-y-3">
-      <div className="flex items-center justify-between flex-wrap gap-2">
+    <Card>
+      <div className="mb-3 flex items-center justify-between flex-wrap gap-2">
         <h2 className="font-mono text-sm font-bold text-amber-400 uppercase tracking-wider">{title}</h2>
         {subtitle && <span className="text-xs font-mono text-[#737373]">{subtitle}</span>}
       </div>
       {children}
+    </Card>
+  );
+}
+
+// ── Methodology panel ─────────────────────────────────────────────────────────
+
+function MethodologyPanel() {
+  const [open, setOpen] = useState(false);
+  const rows: [string, string][] = [
+    ["IV Calculation",    "Black-Scholes Newton-Raphson (≤200 iterations). r = 4.5%. No dividend adjustment. Sigma bounds: 0.01–5.0."],
+    ["Greeks",           "European B-S approximation. Theta per calendar day. Vega per 1% IV move."],
+    ["Max Pain",         "Strike minimizing total ITM option payout (OI-weighted). Moneyness range 0.5×–2.0× spot."],
+    ["Expiry Selection", "Nearest (≥1 DTE), next weekly, standard monthly (third Friday, day 15–21), following monthly."],
+    ["Filters",          "Min price $0.05. Spread/price ≤90%. Moneyness 50%–200%. No calculable IV = excluded."],
+    ["Data Source",      "Polygon.io real-time options snapshot. Stock OHLCV via Polygon daily aggregates. ~60s server cache."],
+    ["Disclaimer",       "IV and Greeks are approximations. Not financial advice."],
+  ];
+  return (
+    <div className="rounded-lg border border-[#1f1f1f] bg-[#0d0d0d]">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-[#111] transition-colors rounded-lg"
+      >
+        <span className="font-mono text-xs uppercase tracking-widest text-[#525252]">
+          Calculation methodology &amp; assumptions
+        </span>
+        <span className="font-mono text-[10px] text-[#383838]">{open ? "▼" : "▶"}</span>
+      </button>
+      {open && (
+        <div className="border-t border-[#1f1f1f] px-4 py-4 space-y-3">
+          {rows.map(([label, note]) => (
+            <div key={label} className="grid gap-2 text-xs font-mono" style={{ gridTemplateColumns: "180px 1fr" }}>
+              <span className="text-[#525252]">{label}</span>
+              <span className="text-[#737373] leading-relaxed">{note}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -185,7 +231,6 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<OptionsApiResponse | null>(null);
-  const [contractType, setContractType] = useState<"call" | "put" | "both">("both");
 
   const fetchData = useCallback(async (sym: string) => {
     setLoading(true);
@@ -212,241 +257,292 @@ export default function DashboardPage() {
     if (sym) fetchData(sym);
   };
 
-  const ivSurface = useMemo(() => {
-    if (!data) return [];
-    if (contractType === "both") return data.ivSurface;
-    return data.ivSurface.filter(d => d.type === contractType);
-  }, [data, contractType]);
-
-  const ivMin = useMemo(() => ivSurface.length ? Math.min(...ivSurface.map(d => d.iv)) : 0, [ivSurface]);
-  const ivMax = useMemo(() => ivSurface.length ? Math.max(...ivSurface.map(d => d.iv)) : 1, [ivSurface]);
-
+  // ── Derived snapshot metrics ──────────────────────────────────────────────
   const atmIV = useMemo(() => {
-    if (!ivSurface.length || !data?.underlyingPrice) return null;
-    const nearDte = Math.min(...ivSurface.map(d => d.daysToExp));
-    const near = ivSurface.filter(d => d.daysToExp <= nearDte + 7);
+    const surface = data?.ivSurface ?? [];
+    if (!surface.length || !data?.underlyingPrice) return null;
+    const nearDte = Math.min(...surface.map(d => d.daysToExp));
+    const near = surface.filter(d => d.daysToExp <= nearDte + 7);
     if (!near.length) return null;
     return near.reduce((a, b) =>
       Math.abs(a.strike - data.underlyingPrice) < Math.abs(b.strike - data.underlyingPrice) ? a : b
     ).iv;
-  }, [ivSurface, data]);
+  }, [data]);
+
+  const pcRatio = useMemo(() => {
+    if (!data?.byExpiry.length) return null;
+    const totC = data.byExpiry.reduce((s, r) => s + r.callVolume, 0);
+    const totP = data.byExpiry.reduce((s, r) => s + r.putVolume, 0);
+    return totC > 0 ? totP / totC : null;
+  }, [data]);
+
+  const frontMonthImpliedMove = data?.sentiment[0]?.impliedMove ?? null;
 
   const hasData = !!data && !loading;
+  const hasIV   = hasData && (data.ivSurface?.length ?? 0) > 0;
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-[#e5e5e5] flex flex-col">
-      {/* Header */}
-      <header className="border-b border-[#262626] px-6 py-3 flex items-center justify-between">
+
+      {/* ── Header ── */}
+      <header className="border-b border-[#262626] px-6 py-3 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
           <span className="font-mono text-amber-400 font-bold tracking-widest text-sm uppercase">Options Flow</span>
-          {ticker && <><span className="text-[#737373] text-xs font-mono">|</span>
-            <span className="text-white font-mono font-bold text-sm">{ticker}</span>
-            {data?.underlyingPrice && <span className="text-amber-400 font-mono text-sm">${data.underlyingPrice.toFixed(2)}</span>}</>}
+          {ticker && (
+            <>
+              <span className="text-[#383838] text-xs font-mono">|</span>
+              <span className="text-white font-mono font-bold text-sm">{ticker}</span>
+              {data?.underlyingPrice && (
+                <span className="text-amber-400 font-mono text-sm">${data.underlyingPrice.toFixed(2)}</span>
+              )}
+            </>
+          )}
         </div>
-        <div className="text-xs font-mono text-[#737373]">Polygon.io · IV via Black-Scholes (r=4.5%)</div>
+        <span className="text-[10px] font-mono text-[#383838] tracking-wider hidden sm:block">
+          Polygon.io · BS IV r=4.5%
+        </span>
       </header>
 
-      <main className="flex-1 p-6 space-y-6">
-        {/* Search */}
-        <div className="bg-[#111111] border border-[#262626] rounded-lg p-4">
+      <main className="flex-1 p-6 space-y-5 max-w-[1600px] mx-auto w-full">
+
+        {/* ── Search ── */}
+        <Card>
           <form onSubmit={handleSubmit} className="flex gap-3 items-end flex-wrap">
             <div className="flex flex-col gap-1 flex-1 min-w-[160px]">
-              <label className="text-xs font-mono text-[#737373] uppercase tracking-wider">Underlying Symbol</label>
-              <div className="flex gap-2">
-                <input
-                  type="text" value={inputVal}
-                  onChange={e => setInputVal(e.target.value.toUpperCase())}
-                  placeholder="SPY, AAPL, TSLA..."
-                  className="flex-1 bg-[#0a0a0a] border border-[#262626] rounded px-3 py-2 font-mono text-sm text-white placeholder-[#525252] focus:outline-none focus:border-amber-500 transition-colors"
-                />
-                <button type="submit" disabled={loading || !inputVal.trim()}
-                  className="bg-amber-500 hover:bg-amber-400 disabled:bg-[#262626] disabled:text-[#525252] text-black font-bold px-5 py-2 rounded text-sm font-mono transition-colors">
-                  {loading ? "..." : "SCAN"}
-                </button>
-              </div>
+              <label className="text-[10px] font-mono text-[#737373] uppercase tracking-widest">
+                Underlying Symbol
+              </label>
+              <input
+                type="text"
+                value={inputVal}
+                onChange={e => setInputVal(e.target.value.toUpperCase())}
+                placeholder="SPY, AAPL, TSLA…"
+                className="bg-[#0a0a0a] border border-[#262626] rounded px-3 py-2 font-mono text-sm text-white placeholder-[#525252] focus:outline-none focus:border-amber-500 transition-colors"
+              />
             </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-mono text-[#737373] uppercase tracking-wider">Type</label>
-              <div className="flex gap-1">
-                {(["both", "call", "put"] as const).map(t => (
-                  <button key={t} type="button" onClick={() => setContractType(t)}
-                    className={`px-3 py-2 rounded text-xs font-mono font-bold transition-colors ${contractType === t
-                      ? t === "call" ? "bg-emerald-600 text-white" : t === "put" ? "bg-red-600 text-white" : "bg-amber-500 text-black"
-                      : "bg-[#1a1a1a] text-[#737373] hover:text-white border border-[#262626]"}`}>
-                    {t.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <button
+              type="submit"
+              disabled={loading || !inputVal.trim()}
+              className="bg-amber-500 hover:bg-amber-400 disabled:bg-[#262626] disabled:text-[#525252] text-black font-bold px-5 py-2 rounded text-sm font-mono transition-colors"
+            >
+              {loading ? "…" : "SCAN"}
+            </button>
           </form>
           <div className="mt-3 flex gap-2 flex-wrap">
             {POPULAR.map(s => (
-              <button key={s} onClick={() => { setInputVal(s); fetchData(s); }}
-                className="text-xs font-mono text-[#737373] hover:text-amber-400 transition-colors px-2 py-1 border border-[#1f1f1f] rounded hover:border-amber-500">
+              <button
+                key={s}
+                onClick={() => { setInputVal(s); fetchData(s); }}
+                className="text-xs font-mono text-[#737373] hover:text-amber-400 transition-colors px-2 py-1 border border-[#1f1f1f] rounded hover:border-amber-500"
+              >
                 {s}
               </button>
             ))}
           </div>
-        </div>
+        </Card>
 
-        {/* Error */}
+        {/* ── Error ── */}
         {error && (
-          <div className="bg-red-950/30 border border-red-800 rounded-lg px-4 py-3 text-red-400 font-mono text-sm">{error}</div>
-        )}
-
-        {/* Stats bar */}
-        {hasData && data && ivSurface.length > 0 && (
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-            {[
-              { label: "Spot", value: `$${data.underlyingPrice.toFixed(2)}` },
-              { label: "ATM IV", value: atmIV != null ? `${(atmIV * 100).toFixed(1)}%` : "—", accent: true },
-              { label: "IV Range", value: `${(ivMin * 100).toFixed(0)}%–${(ivMax * 100).toFixed(0)}%` },
-              { label: "Contracts", value: ivSurface.length.toLocaleString() },
-              {
-                label: "Today P/C Vol",
-                value: (() => {
-                  const totC = data.byExpiry.reduce((s, r) => s + r.callVolume, 0);
-                  const totP = data.byExpiry.reduce((s, r) => s + r.putVolume, 0);
-                  return totC > 0 ? (totP / totC).toFixed(2) : "—";
-                })(),
-              },
-            ].map(stat => (
-              <div key={stat.label} className="bg-[#111111] border border-[#262626] rounded-lg px-4 py-3">
-                <div className="text-[#737373] text-xs font-mono uppercase tracking-wider">{stat.label}</div>
-                <div className={`font-mono font-bold text-lg mt-1 ${stat.accent ? "text-amber-400" : "text-white"}`}>{stat.value}</div>
-              </div>
-            ))}
+          <div className="rounded-lg bg-red-950/30 border border-red-800 px-4 py-3 text-red-400 font-mono text-sm">
+            {error}
           </div>
         )}
 
-        {/* Loading */}
+        {/* ── Loading ── */}
         {loading && (
-          <div className="bg-[#111111] border border-[#262626] rounded-lg flex items-center justify-center h-64">
+          <Card className="flex items-center justify-center h-64">
             <div className="flex flex-col items-center gap-3">
               <div className="w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
               <span className="text-[#737373] font-mono text-sm">Fetching chain + computing analytics…</span>
             </div>
-          </div>
+          </Card>
         )}
 
-        {/* ── IV Skew + Greeks ── */}
-        {hasData && data && data.ivSurface.length > 0 && data.expirations.length > 0 && (
-          <Panel title="">
-            <OptionsAnalyticsPanel
-              ivSurface={data.ivSurface}
-              expirations={data.expirations}
-              underlyingPrice={data.underlyingPrice}
-              ticker={ticker}
-            />
-          </Panel>
+        {/* ════════════════════════════════════════════════════════
+            01 · MARKET SNAPSHOT
+            ════════════════════════════════════════════════════════ */}
+        {hasData && data && (
+          <>
+            <SectionLabel num="01" title="Market Snapshot" />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {([
+                { label: "Spot",          value: `$${data.underlyingPrice.toFixed(2)}`, accent: true  },
+                { label: "ATM IV",        value: atmIV != null ? `${(atmIV * 100).toFixed(1)}%` : "—", accent: true },
+                { label: "P/C Vol Ratio", value: pcRatio != null ? pcRatio.toFixed(2) : "—", accent: false },
+                { label: "Implied Move",  value: frontMonthImpliedMove != null ? `±${(frontMonthImpliedMove * 100).toFixed(1)}%` : "—", accent: false },
+              ] as const).map(stat => (
+                <div key={stat.label} className="rounded-lg border border-[#262626] bg-[#111111] px-4 py-3">
+                  <div className="text-[10px] text-[#737373] font-mono uppercase tracking-widest">{stat.label}</div>
+                  <div className={`font-mono font-bold text-xl mt-1 ${stat.accent ? "text-amber-400" : "text-white"}`}>
+                    {stat.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
 
-        {/* ── Volume + OI side by side ── */}
+        {/* ════════════════════════════════════════════════════════
+            02 · EXPIRY STRUCTURE
+            ════════════════════════════════════════════════════════ */}
         {hasData && data && data.byExpiry.length > 0 && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Panel title="Option Volume by Expiry" subtitle="Calls vs puts · today">
-              <VolumeByExpiryChart data={data.byExpiry} />
-              <p className="text-xs font-mono text-[#525252]">
-                High put volume vs calls = bearish pressure. Skewed call volume = bullish positioning.
-              </p>
-            </Panel>
-            <Panel title="Open Interest by Expiry" subtitle="Existing positions · prev close">
-              <OIByExpiryChart data={data.byExpiry} />
-              <p className="text-xs font-mono text-[#525252]">
-                Rising OI = new contracts being opened. Falling OI = positions being closed/expired.
-              </p>
-            </Panel>
-          </div>
+          <>
+            <SectionLabel num="02" title="Expiry Structure" />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <Panel title="Option Volume by Expiry" subtitle="Calls vs puts · today">
+                <VolumeByExpiryChart data={data.byExpiry} />
+                <p className="text-xs font-mono text-[#525252] mt-1">
+                  High put/call skew = near-term bearish pressure.
+                </p>
+              </Panel>
+              <Panel title="Open Interest by Expiry" subtitle="Existing positions · prev close">
+                <OIByExpiryChart data={data.byExpiry} />
+                <p className="text-xs font-mono text-[#525252] mt-1">
+                  Rising OI = new positions opening. Falling = closing or expiring.
+                </p>
+              </Panel>
+            </div>
+          </>
         )}
 
-        {/* ── Multi-Expiration Max Pain ── */}
+        {/* ════════════════════════════════════════════════════════
+            03 · SELECTED EXPIRY ANALYSIS
+            ════════════════════════════════════════════════════════ */}
+        {hasIV && data && data.expirations.length > 0 && (
+          <>
+            <SectionLabel num="03" title="Selected Expiry Analysis" />
+            <Card>
+              <OptionsAnalyticsPanel
+                ivSurface={data.ivSurface}
+                expirations={data.expirations}
+                underlyingPrice={data.underlyingPrice}
+                ticker={ticker}
+              />
+            </Card>
+          </>
+        )}
+
+        {/* ════════════════════════════════════════════════════════
+            04 · POSITIONING & PINNING
+            ════════════════════════════════════════════════════════ */}
         {hasData && data && data.maxPainSections.length > 0 && (
-          <Panel title="">
-            <MaxPainAnalyticsPanel
-              maxPainSections={data.maxPainSections}
-              ticker={ticker}
-              underlyingPrice={data.underlyingPrice}
-            />
-          </Panel>
+          <>
+            <SectionLabel num="04" title="Positioning & Pinning" />
+            <Card>
+              <MaxPainAnalyticsPanel
+                maxPainSections={data.maxPainSections}
+                ticker={ticker}
+                underlyingPrice={data.underlyingPrice}
+              />
+            </Card>
+          </>
         )}
 
-        {/* ── Stock chart ── */}
+        {/* ════════════════════════════════════════════════════════
+            05 · PRICE CONTEXT
+            ════════════════════════════════════════════════════════ */}
         {hasData && data && data.stockAggs.length > 0 && (
-          <Panel title={`${ticker} — 30-Day Price & Volume`} subtitle="Daily close + volume">
-            <StockChart data={data.stockAggs} ticker={ticker} />
-          </Panel>
+          <>
+            <SectionLabel num="05" title="Price Context" />
+            <Panel title={`${ticker} — 30-Day Price & Volume`} subtitle="Daily close + volume">
+              <StockChart data={data.stockAggs} ticker={ticker} />
+            </Panel>
+          </>
         )}
 
-        {/* ── Market Sentiment Table ── */}
-        {hasData && data && data.sentiment.length > 0 && (
-          <Panel
-            title="Market Sentiment — IV Skew by Expiry"
-            subtitle="ATM call vs put IV · positive skew = puts more expensive = bearish"
-          >
-            <SentimentTable data={data.sentiment} />
-            <div className="flex gap-6 pt-1">
-              <span className="text-xs font-mono text-[#525252]">
-                <span className="text-red-400">Put-Call Skew &gt; 0</span> = market paying up for downside protection
-              </span>
-              <span className="text-xs font-mono text-[#525252]">
-                <span className="text-emerald-400">Put-Call Skew &lt; 0</span> = calls bid up, bullish expectation
-              </span>
-              <span className="text-xs font-mono text-[#525252]">
-                <span className="text-amber-400">Implied Move</span> = expected ±% by expiry (1σ)
-              </span>
-            </div>
-          </Panel>
+        {/* ════════════════════════════════════════════════════════
+            06 · REFERENCE TABLES
+            ════════════════════════════════════════════════════════ */}
+        {hasData && data && (data.sentiment.length > 0 || hasIV) && (
+          <>
+            <SectionLabel num="06" title="Reference Tables" />
+
+            {data.sentiment.length > 0 && (
+              <Panel
+                title="IV Skew by Expiry"
+                subtitle="ATM call vs put IV · positive skew = puts more expensive"
+              >
+                <SentimentTable data={data.sentiment} />
+                <div className="flex flex-wrap gap-6 pt-2">
+                  <span className="text-xs font-mono text-[#525252]">
+                    <span className="text-red-400">Skew &gt; 0</span> = market paying for downside protection
+                  </span>
+                  <span className="text-xs font-mono text-[#525252]">
+                    <span className="text-emerald-400">Skew &lt; 0</span> = calls bid, bullish expectation
+                  </span>
+                  <span className="text-xs font-mono text-[#525252]">
+                    <span className="text-amber-400">Implied Move</span> = expected ±% by expiry (1σ ATM)
+                  </span>
+                </div>
+              </Panel>
+            )}
+
+            {hasIV && (
+              <Panel title="Top Contracts by Volume">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs font-mono">
+                    <thead>
+                      <tr className="border-b border-[#262626]">
+                        {["Type", "Strike", "Expiry", "DTE", "IV", "Bid", "Ask", "Spread", "Mid", "Volume", "OI"].map(h => (
+                          <th key={h} className="text-left py-2 px-2 text-[#737373] uppercase tracking-wider font-normal whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...data.ivSurface].sort((a, b) => b.volume - a.volume).slice(0, 20).map((row, i) => (
+                        <tr key={i} className="border-b border-[#1a1a1a] hover:bg-[#1a1a1a] transition-colors">
+                          <td className={`py-1.5 px-2 font-bold ${row.type === "call" ? "text-emerald-400" : "text-red-400"}`}>
+                            {row.type.toUpperCase()}
+                          </td>
+                          <td className="py-1.5 px-2 text-white">${row.strike}</td>
+                          <td className="py-1.5 px-2 text-[#e5e5e5]">{row.expiration}</td>
+                          <td className="py-1.5 px-2 text-[#737373]">{Math.round(row.daysToExp)}d</td>
+                          <td className="py-1.5 px-2 text-amber-400 font-bold">{(row.iv * 100).toFixed(1)}%</td>
+                          <td className="py-1.5 px-2 text-[#e5e5e5]">{row.bid != null ? `$${row.bid.toFixed(2)}` : "—"}</td>
+                          <td className="py-1.5 px-2 text-[#e5e5e5]">{row.ask != null ? `$${row.ask.toFixed(2)}` : "—"}</td>
+                          <td className="py-1.5 px-2 text-[#737373]">{row.spread != null ? `$${row.spread.toFixed(2)}` : "—"}</td>
+                          <td className="py-1.5 px-2 text-white">${row.optionPrice.toFixed(2)}</td>
+                          <td className="py-1.5 px-2 text-white">{row.volume.toLocaleString()}</td>
+                          <td className="py-1.5 px-2 text-[#e5e5e5]">{row.openInterest.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Panel>
+            )}
+          </>
         )}
 
-        {/* ── Top Contracts Table ── */}
-        {hasData && ivSurface.length > 0 && (
-          <Panel title="Top Contracts by Volume">
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs font-mono">
-                <thead>
-                  <tr className="border-b border-[#262626]">
-                    {["Type", "Strike", "Expiry", "DTE", "IV", "Moneyness", "Opt Px", "Volume", "OI"].map(h => (
-                      <th key={h} className="text-left py-2 px-2 text-[#737373] uppercase tracking-wider font-normal">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...ivSurface].sort((a, b) => b.volume - a.volume).slice(0, 20).map((row, i) => (
-                    <tr key={i} className="border-b border-[#1a1a1a] hover:bg-[#1a1a1a] transition-colors">
-                      <td className={`py-1.5 px-2 font-bold ${row.type === "call" ? "text-emerald-400" : "text-red-400"}`}>{row.type.toUpperCase()}</td>
-                      <td className="py-1.5 px-2 text-white">${row.strike}</td>
-                      <td className="py-1.5 px-2 text-[#e5e5e5]">{row.expiration}</td>
-                      <td className="py-1.5 px-2 text-[#737373]">{Math.round(row.daysToExp)}d</td>
-                      <td className="py-1.5 px-2 text-amber-400 font-bold">{(row.iv * 100).toFixed(1)}%</td>
-                      <td className={`py-1.5 px-2 ${Math.abs(row.moneyness - 1) < 0.05 ? "text-amber-400" : "text-[#e5e5e5]"}`}>{(row.moneyness * 100).toFixed(1)}%</td>
-                      <td className="py-1.5 px-2 text-white">${row.optionPrice.toFixed(2)}</td>
-                      <td className="py-1.5 px-2 text-white">{row.volume.toLocaleString()}</td>
-                      <td className="py-1.5 px-2 text-[#e5e5e5]">{row.openInterest.toLocaleString()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
+        {/* ════════════════════════════════════════════════════════
+            07 · METHODOLOGY & ASSUMPTIONS
+            ════════════════════════════════════════════════════════ */}
+        {hasData && (
+          <>
+            <SectionLabel num="07" title="Methodology & Assumptions" />
+            <MethodologyPanel />
+          </>
         )}
 
-        {/* Empty state */}
+        {/* ── Empty state ── */}
         {!loading && !data && !error && (
-          <div className="bg-[#111111] border border-[#262626] rounded-lg flex flex-col items-center justify-center h-80 gap-4">
+          <Card className="flex flex-col items-center justify-center h-80 gap-4">
             <div className="text-5xl opacity-20">📊</div>
-            <div className="text-center space-y-1">
-              <p className="text-[#e5e5e5] font-mono text-sm">Enter a ticker to load the full options dashboard</p>
-              <p className="text-[#737373] font-mono text-xs">IV Surface · Volume · OI · Max Pain · Sentiment · 30-day stock chart</p>
+            <div className="text-center space-y-2">
+              <p className="text-[#e5e5e5] font-mono text-sm">Enter a ticker to load the options dashboard</p>
+              <p className="text-[#525252] font-mono text-xs">IV Skew · Greeks · Max Pain · Volume · OI · Sentiment</p>
             </div>
-          </div>
+          </Card>
         )}
+
       </main>
 
-      <footer className="border-t border-[#262626] px-6 py-2 text-xs font-mono text-[#525252] flex items-center justify-between">
-        <span>Options Flow · Polygon.io · IV via Black-Scholes (r=4.5%)</span>
+      <footer className="border-t border-[#262626] px-6 py-2 text-[10px] font-mono text-[#383838] flex items-center justify-between shrink-0">
+        <span>Options Flow · Polygon.io · Black-Scholes IV (r=4.5%)</span>
         <span>Not financial advice</span>
       </footer>
+
     </div>
   );
 }
