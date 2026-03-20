@@ -135,19 +135,19 @@ function LineChartPanel({
   const fmt = yFormatter ?? ((v: number) => `${v}${unit ?? ""}`);
 
   return (
-    <div className="rounded bg-[#f8fafc] p-2" style={{ height: 220 }}>
+    <div style={{ height: 220 }}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: 4 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
           <XAxis
             dataKey="strike"
-            tick={{ fontSize: 10, fill: "#374151" }}
+            tick={{ fontSize: 10, fill: "#737373", fontFamily: "monospace" }}
             tickFormatter={v => `$${v}`}
           />
           <YAxis
-            tick={{ fontSize: 10, fill: "#374151" }}
+            tick={{ fontSize: 10, fill: "#737373", fontFamily: "monospace" }}
             tickFormatter={fmt}
-            label={yLabel ? { value: yLabel, angle: -90, position: "insideLeft", style: { fontSize: 9, fill: "#6b7280" } } : undefined}
+            label={yLabel ? { value: yLabel, angle: -90, position: "insideLeft", style: { fontSize: 9, fill: "#737373", fontFamily: "monospace" } } : undefined}
             width={50}
           />
           <Tooltip
@@ -155,20 +155,20 @@ function LineChartPanel({
           />
           <ReferenceLine
             x={spot}
-            stroke="#d97706"
+            stroke="#f59e0b"
             strokeDasharray="4 3"
             strokeWidth={1.5}
-            label={{ value: "S", position: "top", fill: "#d97706", fontSize: 10 }}
+            label={{ value: "S", position: "top", fill: "#f59e0b", fontSize: 10, fontFamily: "monospace" }}
           />
           {(series === "both" || series === "calls") && (
             <Line
               type="monotone"
               dataKey={callKey as string}
               name="Call"
-              stroke="#2563eb"
+              stroke="#22c55e"
               strokeWidth={1.5}
               dot={false}
-              activeDot={{ r: 4, fill: "#2563eb" }}
+              activeDot={{ r: 4, fill: "#22c55e" }}
             />
           )}
           {(series === "both" || series === "puts") && (
@@ -176,15 +176,15 @@ function LineChartPanel({
               type="monotone"
               dataKey={putKey as string}
               name="Put"
-              stroke="#dc2626"
+              stroke="#ef4444"
               strokeWidth={1.5}
               dot={false}
-              activeDot={{ r: 4, fill: "#dc2626" }}
+              activeDot={{ r: 4, fill: "#ef4444" }}
             />
           )}
           {series === "both" && (
             <Legend
-              wrapperStyle={{ fontSize: 10, color: "#374151", paddingTop: 2 }}
+              wrapperStyle={{ fontSize: 10, color: "#737373", fontFamily: "monospace", paddingTop: 2 }}
             />
           )}
         </LineChart>
