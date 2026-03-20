@@ -44,16 +44,17 @@ function CustomTooltip({
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
-    <div className="bg-[#1a1a1a] border border-[#262626] rounded px-3 py-2 text-xs font-mono shadow-xl z-50">
+    <div className="bg-[#1a1a1a] border border-[#262626] rounded px-3 py-2 text-xs font-mono shadow-xl">
       <div className={`font-semibold mb-1 ${d.type === "call" ? "text-emerald-400" : "text-red-400"}`}>
         {d.type.toUpperCase()} ${d.strike}
       </div>
       <div className="text-[#e5e5e5]">Expiry: <span className="text-white">{d.expiration} ({Math.round(d.daysToExp)}d)</span></div>
       <div className="text-[#e5e5e5]">IV: <span className="text-amber-400 font-bold">{(d.iv * 100).toFixed(1)}%</span></div>
-      <div className="text-[#e5e5e5]">Option close: <span className="text-white">${d.optionPrice.toFixed(2)}</span></div>
+      <div className="text-[#e5e5e5]">Option px: <span className="text-white">${d.optionPrice.toFixed(2)}</span></div>
       <div className="text-[#e5e5e5]">Underlying: <span className="text-white">${d.underlyingPrice.toFixed(2)}</span></div>
       <div className="text-[#e5e5e5]">Moneyness: <span className="text-white">{(d.moneyness * 100).toFixed(1)}%</span></div>
       <div className="text-[#e5e5e5]">Volume: <span className="text-white">{d.volume.toLocaleString()}</span></div>
+      <div className="text-[#e5e5e5]">OI: <span className="text-white">{d.openInterest.toLocaleString()}</span></div>
     </div>
   );
 }
@@ -85,7 +86,6 @@ export default function IVSurfacePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [snapshots, setSnapshots] = useState<OptionSnapshot[]>([]);
-  const [latestDate, setLatestDate] = useState<string | null>(null);
   const [contractType, setContractType] = useState<"call" | "put" | "both">("both");
 
   const fetchData = useCallback(async (sym: string) => {
@@ -94,10 +94,11 @@ export default function IVSurfacePage() {
     setSnapshots([]);
     try {
       const res = await fetch(`/api/options?ticker=${encodeURIComponent(sym)}`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed to fetch options data");
+      const text = await res.text();
+      if (!text) throw new Error("Empty response from server");
+      const json = JSON.parse(text);
+      if (!res.ok) throw new Error(json.error || `Server error ${res.status}`);
       setSnapshots(json.results || []);
-      setLatestDate(json.latestDate || null);
       setTicker(sym.toUpperCase());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
@@ -120,7 +121,6 @@ export default function IVSurfacePage() {
 
   const ivMin = useMemo(() => displayData.length ? Math.min(...displayData.map((d) => d.iv)) : 0, [displayData]);
   const ivMax = useMemo(() => displayData.length ? Math.max(...displayData.map((d) => d.iv)) : 1, [displayData]);
-
   const underlyingPrice = snapshots[0]?.underlyingPrice;
 
   const atmIV = useMemo(() => {
@@ -145,10 +145,8 @@ export default function IVSurfacePage() {
           <span className="text-[#737373] text-xs font-mono">|</span>
           <span className="text-[#737373] text-xs font-mono">IV Surface</span>
         </div>
-        <div className="text-xs font-mono text-[#737373] flex gap-2 items-center">
-          <span>Massive (Polygon) flat files</span>
-          <span className="text-[#525252]">·</span>
-          <span>IV via Black-Scholes</span>
+        <div className="text-xs font-mono text-[#737373]">
+          Polygon.io · IV via Black-Scholes (r=4.5%)
         </div>
       </header>
 
@@ -212,17 +210,6 @@ export default function IVSurfacePage() {
           </div>
         </div>
 
-        {/* Data date notice */}
-        {latestDate && (
-          <div className="flex items-center gap-2 px-1">
-            <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-            <span className="text-xs font-mono text-[#737373]">
-              Showing end-of-day data for <span className="text-amber-400">{latestDate}</span>
-              {" "}(latest available in Massive flat files)
-            </span>
-          </div>
-        )}
-
         {/* Error */}
         {error && (
           <div className="bg-red-950/30 border border-red-800 rounded-lg px-4 py-3 text-red-400 font-mono text-sm">
@@ -235,7 +222,7 @@ export default function IVSurfacePage() {
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             {[
               { label: "Symbol", value: ticker },
-              { label: "Close", value: underlyingPrice ? `$${underlyingPrice.toFixed(2)}` : "—" },
+              { label: "Spot", value: underlyingPrice ? `$${underlyingPrice.toFixed(2)}` : "—" },
               { label: "ATM IV", value: atmIV != null ? `${(atmIV * 100).toFixed(1)}%` : "—", accent: true },
               { label: "IV Range", value: `${(ivMin * 100).toFixed(0)}%–${(ivMax * 100).toFixed(0)}%` },
               { label: "Contracts", value: displayData.length.toLocaleString() },
@@ -255,7 +242,7 @@ export default function IVSurfacePage() {
           <div className="bg-[#111111] border border-[#262626] rounded-lg flex items-center justify-center h-96">
             <div className="flex flex-col items-center gap-3">
               <div className="w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
-              <span className="text-[#737373] font-mono text-sm">Streaming flat file + calculating IV…</span>
+              <span className="text-[#737373] font-mono text-sm">Fetching chain + calculating IV…</span>
             </div>
           </div>
         ) : displayData.length > 0 ? (
@@ -295,15 +282,16 @@ export default function IVSurfacePage() {
             <IVLegend min={ivMin} max={ivMax} />
           </div>
         ) : ticker && !loading ? (
-          <div className="bg-[#111111] border border-[#262626] rounded-lg p-8 flex flex-col items-center justify-center h-48 gap-3">
-            <span className="text-[#737373] font-mono text-sm">No priceable options found for {ticker}.</span>
+          <div className="bg-[#111111] border border-[#262626] rounded-lg flex flex-col items-center justify-center h-48 gap-3">
+            <span className="text-[#737373] font-mono text-sm">No priceable contracts found for {ticker}.</span>
+            <span className="text-[#525252] font-mono text-xs">Symbol may be invalid, or no options traded today.</span>
           </div>
         ) : (
           <div className="bg-[#111111] border border-[#262626] rounded-lg flex flex-col items-center justify-center h-96 gap-4">
             <div className="text-5xl opacity-20">📊</div>
             <div className="text-center space-y-1">
               <p className="text-[#e5e5e5] font-mono text-sm">Enter a ticker to render the IV surface</p>
-              <p className="text-[#737373] font-mono text-xs">Reads Massive flat files · IV via Black-Scholes</p>
+              <p className="text-[#737373] font-mono text-xs">Live data from Polygon.io · IV calculated via Black-Scholes</p>
             </div>
           </div>
         )}
@@ -318,7 +306,7 @@ export default function IVSurfacePage() {
               <table className="w-full text-xs font-mono">
                 <thead>
                   <tr className="border-b border-[#262626]">
-                    {["Type", "Strike", "Expiry", "DTE", "IV", "Moneyness", "Close Px", "Volume"].map((h) => (
+                    {["Type", "Strike", "Expiry", "DTE", "IV", "Moneyness", "Opt Px", "Volume", "OI"].map((h) => (
                       <th key={h} className="text-left py-2 px-2 text-[#737373] uppercase tracking-wider font-normal">{h}</th>
                     ))}
                   </tr>
@@ -341,6 +329,7 @@ export default function IVSurfacePage() {
                         </td>
                         <td className="py-1.5 px-2 text-white">${row.optionPrice.toFixed(2)}</td>
                         <td className="py-1.5 px-2 text-white">{row.volume.toLocaleString()}</td>
+                        <td className="py-1.5 px-2 text-[#e5e5e5]">{row.openInterest.toLocaleString()}</td>
                       </tr>
                     ))}
                 </tbody>
@@ -351,7 +340,7 @@ export default function IVSurfacePage() {
       </main>
 
       <footer className="border-t border-[#262626] px-6 py-2 text-xs font-mono text-[#525252] flex items-center justify-between">
-        <span>Options Flow · Massive flat files · IV via Black-Scholes (r=4.5%)</span>
+        <span>Options Flow · Polygon.io · IV via Black-Scholes (r=4.5%)</span>
         <span>Not financial advice</span>
       </footer>
     </div>

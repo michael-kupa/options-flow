@@ -1,42 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { S3Client, GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
-import zlib from "zlib";
-import { Readable } from "stream";
-import readline from "readline";
 
-// ── S3 Client ─────────────────────────────────────────────────────────────────
-
-const s3 = new S3Client({
-  endpoint: "https://files.massive.com",
-  region: "us-east-1",
-  credentials: {
-    accessKeyId: process.env.MASSIVE_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.MASSIVE_SECRET_ACCESS_KEY!,
-  },
-  forcePathStyle: true,
-});
-
-const BUCKET = "flatfiles";
-
-// ── OCC Ticker Parser ──────────────────────────────────────────────────────────
-// Format: O:{underlying}{YYMMDD}{C|P}{strike*1000 zero-padded to 8 digits}
-// Example: O:TSLA230526C00193000 → TSLA, 2023-05-26, call, $193.00
-
-interface ParsedOCC {
-  underlying: string;
-  expiration: string; // YYYY-MM-DD
-  type: "call" | "put";
-  strike: number;
-}
-
-function parseOCC(ticker: string): ParsedOCC | null {
-  const match = ticker.match(/^O:([A-Z.]+)(\d{2})(\d{2})(\d{2})([CP])(\d{8})$/);
-  if (!match) return null;
-  const [, underlying, yy, mm, dd, cp, strikePadded] = match;
-  const expiration = `20${yy}-${mm}-${dd}`;
-  const strike = parseInt(strikePadded, 10) / 1000;
-  return { underlying, expiration, type: cp === "C" ? "call" : "put", strike };
-}
+const API_KEY = process.env.POLYGON_API_KEY!;
+const BASE = "https://api.polygon.io";
 
 // ── Black-Scholes IV ──────────────────────────────────────────────────────────
 
@@ -54,83 +19,43 @@ function normPDF(x: number): number {
   return Math.exp(-(x * x) / 2) / Math.sqrt(2 * Math.PI);
 }
 
-function bsPrice(S: number, K: number, T: number, r: number, sigma: number, isCall: boolean): number {
-  if (T <= 0 || sigma <= 0) return Math.max(0, isCall ? S - K : K - S);
-  const sqrtT = Math.sqrt(T);
-  const d1 = (Math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * sqrtT);
-  const d2 = d1 - sigma * sqrtT;
-  return isCall
+function bsPrice(S: number, K: number, T: number, r: number, v: number, call: boolean): number {
+  if (T <= 0 || v <= 0) return Math.max(0, call ? S - K : K - S);
+  const sq = Math.sqrt(T);
+  const d1 = (Math.log(S / K) + (r + 0.5 * v * v) * T) / (v * sq);
+  const d2 = d1 - v * sq;
+  return call
     ? S * normCDF(d1) - K * Math.exp(-r * T) * normCDF(d2)
     : K * Math.exp(-r * T) * normCDF(-d2) - S * normCDF(-d1);
 }
 
-function bsVega(S: number, K: number, T: number, r: number, sigma: number): number {
-  if (T <= 0 || sigma <= 0) return 0;
-  const d1 = (Math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T));
+function bsVega(S: number, K: number, T: number, r: number, v: number): number {
+  if (T <= 0 || v <= 0) return 0;
+  const d1 = (Math.log(S / K) + (r + 0.5 * v * v) * T) / (v * Math.sqrt(T));
   return S * Math.sqrt(T) * normPDF(d1);
 }
 
-const RISK_FREE = 0.045;
+const R = 0.045;
 
-function calcIV(S: number, K: number, T: number, price: number, isCall: boolean): number | null {
-  if (T <= 0 || price <= 0 || S <= 0 || K <= 0) return null;
-  const intrinsic = Math.max(0, isCall ? S - K : K - S);
+function calcIV(S: number, K: number, T: number, price: number, call: boolean): number | null {
+  if (T <= 0 || price <= 0) return null;
+  const intrinsic = Math.max(0, call ? S - K : K - S);
   if (price <= intrinsic) return null;
-  let sigma = 0.5;
+
+  let v = 0.5;
   for (let i = 0; i < 200; i++) {
-    const diff = bsPrice(S, K, T, RISK_FREE, sigma, isCall) - price;
+    const diff = bsPrice(S, K, T, R, v, call) - price;
     if (Math.abs(diff) < 0.0001) break;
-    const vega = bsVega(S, K, T, RISK_FREE, sigma);
-    if (Math.abs(vega) < 1e-10) { sigma *= 1.5; continue; }
-    sigma -= diff / vega;
-    if (sigma <= 0.001) sigma = 0.001;
-    if (sigma > 10) return null;
+    const vega = bsVega(S, K, T, R, v);
+    if (Math.abs(vega) < 1e-10) { v = Math.min(v * 1.5, 4); continue; }
+    v -= diff / vega;
+    if (v <= 0.001) v = 0.001;
+    if (v > 10) return null;
   }
-  return sigma <= 0.001 || sigma > 5 ? null : sigma;
+  return v < 0.01 || v > 5 ? null : v;
 }
 
-// ── S3 helpers ────────────────────────────────────────────────────────────────
-
-// Find the most recent available date in the options day_aggs
-async function findLatestDate(): Promise<string | null> {
-  // Walk from the most recent year/month backwards
-  const candidates = ["2023/05", "2023/04", "2023/03", "2023/02", "2023/01"];
-  for (const ym of candidates) {
-    const res = await s3.send(new ListObjectsV2Command({
-      Bucket: BUCKET,
-      Prefix: `us_options_opra/day_aggs_v1/${ym}/`,
-      MaxKeys: 100,
-    }));
-    if (res.Contents?.length) {
-      // Last file by key (keys are YYYY-MM-DD.csv.gz, lexicographic = date order)
-      const last = res.Contents.sort((a, b) => (a.Key! > b.Key! ? 1 : -1)).pop();
-      if (last?.Key) {
-        const m = last.Key.match(/(\d{4}-\d{2}-\d{2})\.csv\.gz$/);
-        if (m) return m[1];
-      }
-    }
-  }
-  return null;
-}
-
-// Stream-parse a gzipped CSV from S3, calling rowFn on each data row
-async function streamCSV(
-  key: string,
-  rowFn: (cols: string[]) => void
-): Promise<void> {
-  const res = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
-  const body = res.Body as NodeJS.ReadableStream;
-  const gunzip = zlib.createGunzip();
-  const stream = Readable.from(body as AsyncIterable<Buffer>).pipe(gunzip);
-  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
-  let header = true;
-  for await (const line of rl) {
-    if (header) { header = false; continue; } // skip header
-    if (line) rowFn(line.split(","));
-  }
-}
-
-// ── API Route ────────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface OptionSnapshot {
   strike: number;
@@ -145,88 +70,109 @@ export interface OptionSnapshot {
   daysToExp: number;
 }
 
+// ── Polygon helpers ───────────────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type RawContract = Record<string, any>;
+
+function daysUntil(dateStr: string): number {
+  const exp = new Date(dateStr + "T16:00:00-05:00");
+  return (exp.getTime() - Date.now()) / 86400000;
+}
+
+async function fetchAllContracts(ticker: string): Promise<RawContract[]> {
+  const results: RawContract[] = [];
+  let cursor: string | null = null;
+
+  for (let page = 0; page < 6; page++) {
+    const url = new URL(`${BASE}/v3/snapshot/options/${ticker}`);
+    url.searchParams.set("apiKey", API_KEY);
+    url.searchParams.set("limit", "250");
+    if (cursor) url.searchParams.set("cursor", cursor);
+
+    const res = await fetch(url.toString(), { next: { revalidate: 60 } });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(`Polygon ${res.status}: ${body?.error ?? body?.message ?? "unknown"}`);
+    }
+
+    const data = await res.json();
+    if (data.results?.length) results.push(...data.results);
+    cursor = data.next_url ? new URL(data.next_url).searchParams.get("cursor") : null;
+    if (!cursor) break;
+  }
+
+  return results;
+}
+
+// ── Route ─────────────────────────────────────────────────────────────────────
+
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const ticker = searchParams.get("ticker")?.toUpperCase()?.trim();
+  const ticker = new URL(req.url).searchParams.get("ticker")?.toUpperCase()?.trim();
   if (!ticker) return NextResponse.json({ error: "ticker is required" }, { status: 400 });
 
-  // 1. Find the latest available date
-  const latestDate = await findLatestDate();
-  if (!latestDate) return NextResponse.json({ error: "No data available" }, { status: 500 });
-
-  const [yyyy, mm, dd] = latestDate.split("-");
-  const dateSlug = `${yyyy}/${mm}/${latestDate}`;
-
-  // 2. Fetch underlying close price from stocks file
-  const stocksKey = `us_stocks_sip/day_aggs_v1/${dateSlug}.csv.gz`;
-  let underlyingPrice: number | null = null;
+  let raw: RawContract[];
   try {
-    await streamCSV(stocksKey, (cols) => {
-      // cols: ticker, volume, open, close, high, low, window_start, transactions
-      if (cols[0] === ticker) underlyingPrice = parseFloat(cols[3]);
-    });
-  } catch {
-    // non-fatal — stock price may not exist (e.g. index ETF with different ticker)
+    raw = await fetchAllContracts(ticker);
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 502 });
   }
 
-  if (!underlyingPrice) {
-    return NextResponse.json(
-      { error: `No stock price found for "${ticker}" on ${latestDate}. Verify the symbol is a US equity.` },
-      { status: 404 }
-    );
+  if (!raw.length) {
+    return NextResponse.json({ error: `No options data found for "${ticker}"` }, { status: 404 });
   }
 
-  // 3. Stream-parse options file, filter by underlying, calculate IV
-  const optionsKey = `us_options_opra/day_aggs_v1/${dateSlug}.csv.gz`;
   const results: OptionSnapshot[] = [];
-  const refDate = new Date(latestDate + "T00:00:00Z");
 
-  await streamCSV(optionsKey, (cols) => {
-    // cols: ticker, volume, open, close, high, low, window_start, transactions
-    const occ = cols[0];
-    if (!occ.startsWith(`O:${ticker}`)) return;
+  for (const c of raw) {
+    const strike: number = c.details?.strike_price;
+    const expiration: string = c.details?.expiration_date;
+    const type: string = c.details?.contract_type;
+    const S: number = c.underlying_asset?.price;
 
-    const parsed = parseOCC(occ);
-    if (!parsed || parsed.underlying !== ticker) return;
+    if (!strike || !expiration || !type || !S) continue;
+    if (type !== "call" && type !== "put") continue;
 
-    const optionPrice = parseFloat(cols[3]); // close
-    const volume = parseInt(cols[1], 10) || 0;
+    // Use bid/ask midpoint if present, otherwise day close, otherwise last trade
+    const bid: number | null = c.last_quote?.bid ?? null;
+    const ask: number | null = c.last_quote?.ask ?? null;
+    const dayClose: number | null = c.day?.close ?? null;
+    const lastTrade: number | null = c.last_trade?.price ?? null;
 
-    if (!optionPrice || optionPrice <= 0) return;
+    let optionPrice: number | null = null;
+    if (bid != null && ask != null && bid > 0 && ask > bid) {
+      optionPrice = (bid + ask) / 2;
+    } else if (dayClose != null && dayClose > 0) {
+      optionPrice = dayClose;
+    } else if (lastTrade != null && lastTrade > 0) {
+      optionPrice = lastTrade;
+    }
 
-    // Days to expiry from data date
-    const expDate = new Date(parsed.expiration + "T00:00:00Z");
-    const daysToExp = (expDate.getTime() - refDate.getTime()) / 86400000;
-    if (daysToExp < 1) return; // skip expired
+    if (!optionPrice) continue;
 
-    // Moneyness filter: 50%–200% of spot
-    const moneyness = parsed.strike / underlyingPrice!;
-    if (moneyness < 0.5 || moneyness > 2.0) return;
+    // Moneyness filter: keep 60%–170% of spot (cleaner surface, fewer outliers)
+    const moneyness = strike / S;
+    if (moneyness < 0.6 || moneyness > 1.7) continue;
 
-    const T = daysToExp / 365;
-    const iv = calcIV(underlyingPrice!, parsed.strike, T, optionPrice, parsed.type === "call");
-    if (iv == null) return;
+    const dte = daysUntil(expiration);
+    if (dte < 1) continue; // skip expiring today or already expired
+
+    const iv = calcIV(S, strike, dte / 365, optionPrice, type === "call");
+    if (iv == null) continue;
 
     results.push({
-      strike: parsed.strike,
-      expiration: parsed.expiration,
-      type: parsed.type,
+      strike,
+      expiration,
+      type: type as "call" | "put",
       optionPrice,
-      underlyingPrice: underlyingPrice!,
+      underlyingPrice: S,
       iv,
-      volume,
-      openInterest: 0, // not in day_aggs — would need quotes file
+      volume: c.day?.volume ?? 0,
+      openInterest: c.open_interest ?? 0,
       moneyness,
-      daysToExp,
+      daysToExp: dte,
     });
-  });
-
-  if (!results.length) {
-    return NextResponse.json(
-      { error: `No priceable options found for "${ticker}" on ${latestDate}.` },
-      { status: 404 }
-    );
   }
 
-  return NextResponse.json({ results, latestDate, count: results.length });
+  return NextResponse.json({ results, count: results.length });
 }
