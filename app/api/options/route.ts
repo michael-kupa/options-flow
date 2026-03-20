@@ -403,7 +403,7 @@ export async function GET(req: NextRequest) {
     ticker,
     underlyingPrice,
     ivSurface,
-    expirations: byExpiry.map(r => r.expiration),
+    expirations: [...new Set(ivSurface.map(c => c.expiration))].sort((a, b) => daysUntil(a) - daysUntil(b)),
     byExpiry,
     maxPain,
     sentiment,
