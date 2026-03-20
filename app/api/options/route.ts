@@ -37,6 +37,30 @@ function bsVega(S: number, K: number, T: number, r: number, v: number): number {
 
 const R = 0.045;
 
+/**
+ * Greeks via Black-Scholes (European approximation for American options).
+ * Assumptions: r=4.5%, no dividends, T in years.
+ * Delta:  calls [0,1], puts [-1,0]
+ * Gamma:  always positive (same for calls/puts)
+ * Theta:  per calendar day (negative = time decay for long options)
+ * Vega:   per 1% change in IV (S*√T*N'(d1)/100)
+ */
+function calcGreeks(S: number, K: number, T: number, iv: number, isCall: boolean) {
+  if (T < 0.002 || iv <= 0 || S <= 0 || K <= 0) return null;
+  const sqrtT = Math.sqrt(T);
+  const d1 = (Math.log(S / K) + (R + 0.5 * iv * iv) * T) / (iv * sqrtT);
+  const d2 = d1 - iv * sqrtT;
+  const nd1 = normPDF(d1);
+  const delta = isCall ? normCDF(d1) : normCDF(d1) - 1;
+  const gamma = nd1 / (S * iv * sqrtT);
+  const thetaYear = isCall
+    ? -(S * nd1 * iv) / (2 * sqrtT) - R * K * Math.exp(-R * T) * normCDF(d2)
+    : -(S * nd1 * iv) / (2 * sqrtT) + R * K * Math.exp(-R * T) * normCDF(-d2);
+  const theta = thetaYear / 365;       // per calendar day
+  const vega  = (S * sqrtT * nd1) / 100; // per 1% vol point
+  return { delta, gamma, theta, vega };
+}
+
 function calcIV(S: number, K: number, T: number, price: number, call: boolean): number | null {
   if (T <= 0 || price <= 0) return null;
   const intrinsic = Math.max(0, call ? S - K : K - S);
@@ -61,8 +85,15 @@ export interface OptionSnapshot {
   expiration: string;
   type: "call" | "put";
   optionPrice: number;
+  bid: number | null;
+  ask: number | null;
+  spread: number | null;
   underlyingPrice: number;
   iv: number;
+  delta: number;
+  gamma: number;
+  theta: number;   // per calendar day
+  vega: number;    // per 1% IV move
   volume: number;
   openInterest: number;
   moneyness: number;
@@ -115,6 +146,7 @@ export interface OptionsApiResponse {
   ticker: string;
   underlyingPrice: number;
   ivSurface: OptionSnapshot[];
+  expirations: string[];          // sorted by DTE, for expiry selector
   byExpiry: ByExpiryRow[];
   maxPain: MaxPainData | null;
   sentiment: SentimentRow[];
@@ -271,7 +303,12 @@ export async function GET(req: NextRequest) {
     maxPain = computeMaxPain(allNear, underlyingPrice, nearestExpiry);
   }
 
-  // ── Loop A: ivSurface (moneyness-filtered + IV calculated) ────────────────
+  // ── Loop A: ivSurface (moneyness-filtered + IV + Greeks calculated) ─────────
+  const MIN_MONEYNESS    = 0.50;
+  const MAX_MONEYNESS    = 2.00;
+  const MAX_SPREAD_RATIO = 0.90;
+  const MIN_PRICE        = 0.05;
+
   const ivSurface: OptionSnapshot[] = [];
   for (const c of raw) {
     const strike: number = c.details?.strike_price;
@@ -287,22 +324,36 @@ export async function GET(req: NextRequest) {
     const lastTrade: number | null = c.last_trade?.price ?? null;
 
     let optionPrice: number | null = null;
-    if (bid != null && ask != null && bid > 0 && ask > bid) optionPrice = (bid + ask) / 2;
-    else if (dayClose != null && dayClose > 0) optionPrice = dayClose;
-    else if (lastTrade != null && lastTrade > 0) optionPrice = lastTrade;
-    if (!optionPrice) continue;
+    if (bid != null && ask != null && bid > 0 && ask > bid) {
+      optionPrice = (bid + ask) / 2;
+    } else if (dayClose != null && dayClose > 0) {
+      optionPrice = dayClose;
+    } else if (lastTrade != null && lastTrade > 0) {
+      optionPrice = lastTrade;
+    }
+    if (!optionPrice || optionPrice < MIN_PRICE) continue;
+
+    const spread = (bid != null && ask != null) ? ask - bid : null;
+    if (spread != null && optionPrice > 0 && spread / optionPrice > MAX_SPREAD_RATIO) continue;
 
     const moneyness = strike / S;
-    if (moneyness < 0.6 || moneyness > 1.7) continue;
+    if (moneyness < MIN_MONEYNESS || moneyness > MAX_MONEYNESS) continue;
     const dte = daysUntil(exp);
     if (dte < 1) continue;
+    const T = dte / 365;
 
-    const iv = calcIV(S, strike, dte / 365, optionPrice, type === "call");
+    const iv = calcIV(S, strike, T, optionPrice, type === "call");
     if (iv == null) continue;
+
+    const greeks = calcGreeks(S, strike, T, iv, type === "call");
+    if (!greeks) continue;
 
     ivSurface.push({
       strike, expiration: exp, type: type as "call" | "put",
-      optionPrice, underlyingPrice: S, iv,
+      optionPrice, bid, ask, spread,
+      underlyingPrice: S, iv,
+      delta: greeks.delta, gamma: greeks.gamma,
+      theta: greeks.theta, vega: greeks.vega,
       volume: c.day?.volume ?? 0,
       openInterest: c.open_interest ?? 0,
       moneyness, daysToExp: dte,
@@ -352,6 +403,7 @@ export async function GET(req: NextRequest) {
     ticker,
     underlyingPrice,
     ivSurface,
+    expirations: byExpiry.map(r => r.expiration),
     byExpiry,
     maxPain,
     sentiment,

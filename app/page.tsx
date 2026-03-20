@@ -2,69 +2,19 @@
 
 import { useState, useCallback, useMemo } from "react";
 import {
-  ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell, BarChart, Bar, Legend, ReferenceLine,
-  ComposedChart, Line, Area,
+  XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, BarChart, Bar, Legend, ReferenceLine,
+  ComposedChart, Line,
 } from "recharts";
+import OptionsAnalyticsPanel from "./components/OptionsAnalytics";
 import type {
-  OptionSnapshot, ByExpiryRow, MaxPainData, SentimentRow, StockAgg, OptionsApiResponse,
+  ByExpiryRow, MaxPainData, SentimentRow, StockAgg, OptionsApiResponse,
 } from "./api/options/route";
-
-// ── Color helpers ─────────────────────────────────────────────────────────────
-
-function ivToColor(iv: number, min: number, max: number): string {
-  const t = Math.max(0, Math.min(1, (iv - min) / (max - min || 0.01)));
-  const stops: [number, number, number][] = [
-    [30, 100, 200], [50, 205, 50], [255, 220, 0], [255, 140, 0], [220, 50, 50],
-  ];
-  const seg = t * (stops.length - 1);
-  const i = Math.floor(seg), f = seg - i;
-  const c1 = stops[Math.min(i, stops.length - 1)];
-  const c2 = stops[Math.min(i + 1, stops.length - 1)];
-  return `rgb(${Math.round(c1[0]+f*(c2[0]-c1[0]))},${Math.round(c1[1]+f*(c2[1]-c1[1]))},${Math.round(c1[2]+f*(c2[2]-c1[2]))})`;
-}
 
 // ── Shared chart theme ────────────────────────────────────────────────────────
 
 const TICK = { fill: "#737373", fontSize: 10, fontFamily: "monospace" };
 const GRID = { stroke: "#1f1f1f", strokeDasharray: "3 3" };
-
-// ── Tooltip components ────────────────────────────────────────────────────────
-
-function IVTooltip({ active, payload }: { active?: boolean; payload?: { payload: OptionSnapshot }[] }) {
-  if (!active || !payload?.length) return null;
-  const d = payload[0].payload;
-  return (
-    <div className="bg-[#1a1a1a] border border-[#262626] rounded px-3 py-2 text-xs font-mono shadow-xl">
-      <div className={`font-semibold mb-1 ${d.type === "call" ? "text-emerald-400" : "text-red-400"}`}>
-        {d.type.toUpperCase()} ${d.strike}
-      </div>
-      <div className="text-[#e5e5e5]">Expiry: <span className="text-white">{d.expiration} ({Math.round(d.daysToExp)}d)</span></div>
-      <div className="text-[#e5e5e5]">IV: <span className="text-amber-400 font-bold">{(d.iv * 100).toFixed(1)}%</span></div>
-      <div className="text-[#e5e5e5]">Option px: <span className="text-white">${d.optionPrice.toFixed(2)}</span></div>
-      <div className="text-[#e5e5e5]">Moneyness: <span className="text-white">{(d.moneyness * 100).toFixed(1)}%</span></div>
-      <div className="text-[#e5e5e5]">Volume: <span className="text-white">{d.volume.toLocaleString()}</span></div>
-      <div className="text-[#e5e5e5]">OI: <span className="text-white">{d.openInterest.toLocaleString()}</span></div>
-    </div>
-  );
-}
-
-function IVLegend({ min, max }: { min: number; max: number }) {
-  const steps = 20;
-  const gradient = Array.from({ length: steps }, (_, i) =>
-    ivToColor(min + (i / (steps - 1)) * (max - min), min, max)
-  ).join(",");
-  return (
-    <div className="flex flex-col items-center gap-1">
-      <span className="text-xs text-[#737373] font-mono">IV Color Scale</span>
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-[#737373] font-mono">{(min * 100).toFixed(0)}%</span>
-        <div className="w-40 h-3 rounded" style={{ background: `linear-gradient(to right, ${gradient})` }} />
-        <span className="text-xs text-[#737373] font-mono">{(max * 100).toFixed(0)}%</span>
-      </div>
-    </div>
-  );
-}
 
 // ── Chart: Volume by Expiry ───────────────────────────────────────────────────
 
@@ -413,24 +363,15 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* ── IV Surface ── */}
-        {hasData && ivSurface.length > 0 && (
-          <Panel title={`${ticker} — IV Surface`} subtitle="Strike (X) × DTE (Y) · color = IV">
-            <ResponsiveContainer width="100%" height={440}>
-              <ScatterChart margin={{ top: 10, right: 30, bottom: 40, left: 10 }}>
-                <CartesianGrid {...GRID} />
-                <XAxis type="number" dataKey="strike" name="Strike" domain={["auto", "auto"]}
-                  tick={TICK} tickFormatter={v => `$${v}`}
-                  label={{ value: "Strike Price ($)", position: "insideBottom", offset: -25, fill: "#737373", fontSize: 11, fontFamily: "monospace" }} />
-                <YAxis type="number" dataKey="daysToExp" name="DTE" domain={[0, "auto"]} tick={TICK}
-                  label={{ value: "Days to Expiry", angle: -90, position: "insideLeft", fill: "#737373", fontSize: 11, fontFamily: "monospace" }} />
-                <Tooltip content={<IVTooltip />} cursor={{ stroke: "#f59e0b44" }} />
-                <Scatter data={ivSurface} shape="circle">
-                  {ivSurface.map((e, i) => <Cell key={i} fill={ivToColor(e.iv, ivMin, ivMax)} fillOpacity={0.85} r={5} />)}
-                </Scatter>
-              </ScatterChart>
-            </ResponsiveContainer>
-            <IVLegend min={ivMin} max={ivMax} />
+        {/* ── IV Skew + Greeks ── */}
+        {hasData && data && data.ivSurface.length > 0 && data.expirations.length > 0 && (
+          <Panel title="">
+            <OptionsAnalyticsPanel
+              ivSurface={data.ivSurface}
+              expirations={data.expirations}
+              underlyingPrice={data.underlyingPrice}
+              ticker={ticker}
+            />
           </Panel>
         )}
 
