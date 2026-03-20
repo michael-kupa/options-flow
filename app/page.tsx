@@ -8,8 +8,9 @@ import {
 } from "recharts";
 import OptionsAnalyticsPanel from "./components/OptionsAnalytics";
 import type {
-  ByExpiryRow, MaxPainData, SentimentRow, StockAgg, OptionsApiResponse,
+  ByExpiryRow, SentimentRow, StockAgg, OptionsApiResponse,
 } from "./api/options/route";
+import MaxPainAnalyticsPanel from "./components/MaxPainAnalytics";
 
 // ── Shared chart theme ────────────────────────────────────────────────────────
 
@@ -68,40 +69,6 @@ function OIByExpiryChart({ data }: { data: ByExpiryRow[] }) {
   );
 }
 
-// ── Chart: Max Pain ───────────────────────────────────────────────────────────
-
-function MaxPainChart({ data }: { data: MaxPainData }) {
-  // Keep ±40% moneyness for display
-  const near = data.strikes.filter(s =>
-    s.strike >= data.currentPrice * 0.6 && s.strike <= data.currentPrice * 1.4
-  );
-  if (!near.length) return <div className="text-[#737373] font-mono text-xs text-center py-8">Insufficient OI data for max pain</div>;
-
-  const fmt = (v: number) => `$${(v / 1e6).toFixed(1)}M`;
-
-  return (
-    <ResponsiveContainer width="100%" height={260}>
-      <BarChart data={near} margin={{ top: 10, right: 10, bottom: 40, left: 20 }}>
-        <CartesianGrid {...GRID} />
-        <XAxis dataKey="strike" tick={{ ...TICK, fontSize: 9 }} tickFormatter={(v) => `$${v}`} angle={-35} textAnchor="end" interval="preserveStartEnd" />
-        <YAxis tick={TICK} tickFormatter={fmt} />
-        <Tooltip
-          contentStyle={{ background: "#1a1a1a", border: "1px solid #262626", borderRadius: 4, fontFamily: "monospace", fontSize: 11 }}
-          labelStyle={{ color: "#e5e5e5" }}
-          labelFormatter={(v) => `Strike $${v}`}
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          formatter={(v: any, name: any) => [`$${(Number(v) / 1e6).toFixed(2)}M`, name === "callPain" ? "Call Pain" : name === "putPain" ? "Put Pain" : "Total"]}
-        />
-        <Bar dataKey="callPain" stackId="a" fill="#22c55e" fillOpacity={0.7} />
-        <Bar dataKey="putPain" stackId="a" fill="#ef4444" fillOpacity={0.7} radius={[2, 2, 0, 0]} />
-        <ReferenceLine x={data.maxPainStrike} stroke="#f59e0b" strokeWidth={2} strokeDasharray="4 2"
-          label={{ value: `Max Pain $${data.maxPainStrike}`, position: "top", fill: "#f59e0b", fontSize: 10, fontFamily: "monospace" }} />
-        <ReferenceLine x={data.currentPrice} stroke="#a78bfa" strokeWidth={1.5}
-          label={{ value: `Spot $${data.currentPrice}`, position: "insideTopRight", fill: "#a78bfa", fontSize: 10, fontFamily: "monospace" }} />
-      </BarChart>
-    </ResponsiveContainer>
-  );
-}
 
 // ── Chart: Stock price + volume (30-day) ──────────────────────────────────────
 
@@ -393,27 +360,22 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* ── Max Pain + Stock chart side by side ── */}
-        {hasData && data && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {data.maxPain && (
-              <Panel
-                title={`Max Pain — ${data.maxPain.expiration}`}
-                subtitle={`Max pain $${data.maxPain.maxPainStrike} · spot $${data.maxPain.currentPrice}`}
-              >
-                <MaxPainChart data={data.maxPain} />
-                <p className="text-xs font-mono text-[#525252]">
-                  The strike where total ITM option value is lowest — where option sellers profit most at expiry.
-                  Pin risk is highest near <span className="text-amber-400">${data.maxPain.maxPainStrike}</span>.
-                </p>
-              </Panel>
-            )}
-            {data.stockAggs.length > 0 && (
-              <Panel title={`${ticker} — 30-Day Price & Volume`} subtitle="Daily close + volume">
-                <StockChart data={data.stockAggs} ticker={ticker} />
-              </Panel>
-            )}
-          </div>
+        {/* ── Multi-Expiration Max Pain ── */}
+        {hasData && data && data.maxPainSections.length > 0 && (
+          <Panel title="">
+            <MaxPainAnalyticsPanel
+              maxPainSections={data.maxPainSections}
+              ticker={ticker}
+              underlyingPrice={data.underlyingPrice}
+            />
+          </Panel>
+        )}
+
+        {/* ── Stock chart ── */}
+        {hasData && data && data.stockAggs.length > 0 && (
+          <Panel title={`${ticker} — 30-Day Price & Volume`} subtitle="Daily close + volume">
+            <StockChart data={data.stockAggs} ticker={ticker} />
+          </Panel>
         )}
 
         {/* ── Market Sentiment Table ── */}

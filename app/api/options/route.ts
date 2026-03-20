@@ -111,15 +111,26 @@ export interface ByExpiryRow {
 
 export interface MaxPainStrike {
   strike: number;
-  totalPain: number;
+  callOI: number;
+  putOI: number;
   callPain: number;
   putPain: number;
+  totalPain: number;
+  callIV: number | null;
+  putIV: number | null;
 }
 
-export interface MaxPainData {
+export interface MaxPainSection {
   expiration: string;
+  label: string;
+  daysToExp: number;
   maxPainStrike: number;
   currentPrice: number;
+  distance: number;
+  distancePct: number;
+  totalCallOI: number;
+  totalPutOI: number;
+  pcRatio: number | null;
   strikes: MaxPainStrike[];
 }
 
@@ -148,7 +159,7 @@ export interface OptionsApiResponse {
   ivSurface: OptionSnapshot[];
   expirations: string[];          // sorted by DTE, for expiry selector
   byExpiry: ByExpiryRow[];
-  maxPain: MaxPainData | null;
+  maxPainSections: MaxPainSection[];
   sentiment: SentimentRow[];
   stockAggs: StockAgg[];
   count: number;
@@ -221,36 +232,96 @@ async function fetchStockAggs(ticker: string): Promise<StockAgg[]> {
   }));
 }
 
-// ── Max pain computation ──────────────────────────────────────────────────────
+// ── Max pain computation (multi-expiration) ───────────────────────────────────
 
-function computeMaxPain(contracts: Raw[], underlyingPrice: number, expiration: string): MaxPainData {
-  const byStrike = new Map<number, { callOI: number; putOI: number }>();
+function isThirdFriday(dateStr: string): boolean {
+  const d = new Date(dateStr + "T12:00:00Z");
+  if (d.getUTCDay() !== 5) return false;
+  const day = d.getUTCDate();
+  return day >= 15 && day <= 21;
+}
 
-  for (const c of contracts) {
-    const strike: number = c.details?.strike_price;
-    const type: string = c.details?.contract_type;
-    const oi: number = c.open_interest ?? 0;
-    if (!strike || !type || oi <= 0) continue;
-    const entry = byStrike.get(strike) ?? { callOI: 0, putOI: 0 };
-    if (type === "call") entry.callOI += oi;
-    else entry.putOI += oi;
-    byStrike.set(strike, entry);
+function selectKeyExpirations(sorted: string[]): { exp: string; label: string }[] {
+  if (!sorted.length) return [];
+  const used = new Set<string>();
+  const result: { exp: string; label: string }[] = [];
+
+  // 1. Nearest
+  const nearest = sorted[0];
+  result.push({ exp: nearest, label: "Nearest" });
+  used.add(nearest);
+
+  // 2. Weekly: next expiry after nearest
+  const weekly = sorted.find(e => !used.has(e));
+  if (weekly) { result.push({ exp: weekly, label: "Weekly" }); used.add(weekly); }
+
+  // 3. Monthly: first third-Friday not already used
+  const monthly = sorted.find(e => isThirdFriday(e) && !used.has(e));
+  if (monthly) {
+    result.push({ exp: monthly, label: "Monthly" });
+    used.add(monthly);
+  } else {
+    const fallback = sorted.find(e => !used.has(e));
+    if (fallback) { result.push({ exp: fallback, label: "Monthly" }); used.add(fallback); }
   }
 
-  const strikes = [...byStrike.keys()].sort((a, b) => a - b);
+  // 4. Next monthly: second third-Friday not already used
+  const nextMonthly = sorted.find(e => isThirdFriday(e) && !used.has(e));
+  if (nextMonthly) {
+    result.push({ exp: nextMonthly, label: "Next Monthly" });
+    used.add(nextMonthly);
+  } else {
+    const fallback = sorted.find(e => !used.has(e));
+    if (fallback) { result.push({ exp: fallback, label: "Next Monthly" }); used.add(fallback); }
+  }
 
-  const strikeData: MaxPainStrike[] = strikes.map((testK) => {
-    let callPain = 0, putPain = 0;
-    for (const [k, { callOI, putOI }] of byStrike) {
-      if (testK > k) callPain += (testK - k) * callOI * 100;    // ITM calls
-      if (testK < k) putPain += (k - testK) * putOI * 100;      // ITM puts
+  return result;
+}
+
+function buildMaxPainSection(
+  label: string,
+  expiration: string,
+  contracts: OptionSnapshot[],
+  underlyingPrice: number
+): MaxPainSection | null {
+  if (!contracts.length) return null;
+  const daysToExp = contracts[0].daysToExp;
+
+  const strikeMap = new Map<number, { callOI: number; putOI: number; callIV: number | null; putIV: number | null }>();
+  for (const c of contracts) {
+    const entry = strikeMap.get(c.strike) ?? { callOI: 0, putOI: 0, callIV: null, putIV: null };
+    if (c.type === "call") {
+      entry.callOI += c.openInterest;
+      if (c.iv > 0) entry.callIV = +(c.iv * 100).toFixed(2);
+    } else {
+      entry.putOI += c.openInterest;
+      if (c.iv > 0) entry.putIV = +(c.iv * 100).toFixed(2);
     }
-    return { strike: testK, totalPain: callPain + putPain, callPain, putPain };
+    strikeMap.set(c.strike, entry);
+  }
+
+  const candidateStrikes = [...strikeMap.keys()].sort((a, b) => a - b);
+
+  const strikeData: MaxPainStrike[] = candidateStrikes.map(testK => {
+    let callPain = 0, putPain = 0;
+    for (const [k, { callOI, putOI }] of strikeMap) {
+      if (testK > k) callPain += (testK - k) * callOI * 100;
+      if (testK < k) putPain += (k - testK) * putOI * 100;
+    }
+    const entry = strikeMap.get(testK)!;
+    return { strike: testK, callOI: entry.callOI, putOI: entry.putOI, callPain, putPain, totalPain: callPain + putPain, callIV: entry.callIV, putIV: entry.putIV };
   });
 
-  const maxPainStrike = strikeData.reduce((a, b) => a.totalPain < b.totalPain ? a : b).strike;
+  if (!strikeData.length) return null;
 
-  return { expiration, maxPainStrike, currentPrice: underlyingPrice, strikes: strikeData };
+  const maxPainStrike = strikeData.reduce((a, b) => a.totalPain < b.totalPain ? a : b).strike;
+  const totalCallOI = [...strikeMap.values()].reduce((s, v) => s + v.callOI, 0);
+  const totalPutOI = [...strikeMap.values()].reduce((s, v) => s + v.putOI, 0);
+  const pcRatio = totalCallOI > 0 ? +(totalPutOI / totalCallOI).toFixed(3) : null;
+  const distance = +(maxPainStrike - underlyingPrice).toFixed(2);
+  const distancePct = +((distance / underlyingPrice) * 100).toFixed(2);
+
+  return { expiration, label, daysToExp, maxPainStrike, currentPrice: underlyingPrice, distance, distancePct, totalCallOI, totalPutOI, pcRatio, strikes: strikeData };
 }
 
 // ── Route ─────────────────────────────────────────────────────────────────────
@@ -294,14 +365,7 @@ export async function GET(req: NextRequest) {
   }
   const byExpiry = [...expiryMap.values()].sort((a, b) => a.daysToExp - b.daysToExp);
 
-  // ── Find nearest expiry + fetch full chain for max pain ────────────────────
-  const nearestExpiry = byExpiry[0]?.expiration ?? null;
-  let maxPain: MaxPainData | null = null;
-  if (nearestExpiry) {
-    const nearRaw = await fetchNearExpiryContracts(ticker, nearestExpiry);
-    const allNear = nearRaw.length > 0 ? nearRaw : raw.filter(c => c.details?.expiration_date === nearestExpiry);
-    maxPain = computeMaxPain(allNear, underlyingPrice, nearestExpiry);
-  }
+  // maxPainSections built from ivSurface after Loop A
 
   // ── Loop A: ivSurface (moneyness-filtered + IV + Greeks calculated) ─────────
   const MIN_MONEYNESS    = 0.50;
@@ -360,6 +424,19 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  // ── Multi-expiration max pain sections ────────────────────────────────────
+  const ivExpirations = [...new Set(ivSurface.map(c => c.expiration))].sort();
+  const keyExpiries = selectKeyExpirations(ivExpirations);
+  const surfaceByExpiryForPain = new Map<string, OptionSnapshot[]>();
+  for (const s of ivSurface) {
+    const list = surfaceByExpiryForPain.get(s.expiration) ?? [];
+    list.push(s);
+    surfaceByExpiryForPain.set(s.expiration, list);
+  }
+  const maxPainSections: MaxPainSection[] = keyExpiries
+    .map(({ exp, label }) => buildMaxPainSection(label, exp, surfaceByExpiryForPain.get(exp) ?? [], underlyingPrice))
+    .filter((s): s is MaxPainSection => s !== null);
+
   // ── Sentiment pass: per expiry ATM call/put IV + P/C skew ─────────────────
   // Build per-expiry lookup from ivSurface
   const surfaceByExpiry = new Map<string, OptionSnapshot[]>();
@@ -405,7 +482,7 @@ export async function GET(req: NextRequest) {
     ivSurface,
     expirations: [...new Set(ivSurface.map(c => c.expiration))].sort((a, b) => daysUntil(a) - daysUntil(b)),
     byExpiry,
-    maxPain,
+    maxPainSections,
     sentiment,
     stockAggs,
     count: ivSurface.length,
